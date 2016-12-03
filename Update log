@@ -1,0 +1,5 @@
+Version 1.1 (03/12/2016)
+changed the statement of SQL of oracle,
+at version 1, there is query one id in one statement, that menas 10 ids needs 10 statements
+in version 1.1, there is query all ids in one statement with "select * from table where ID in (a,b,c,d,e,...)"
+improve the query efficient of oracle. reduce the search time.
