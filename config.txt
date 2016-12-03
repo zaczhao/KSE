@@ -1,0 +1,14 @@
+//This is Common: oracle path
+username/password@ your oracle
+
+//This is Common: oracle database name
+ADULT
+
+//This is Common: id column name, such as columnID, customID...
+ID
+
+//This is Common: Hbase config
+localhost:90000
+
+//This is Common: Hbase auto update period, per second
+5
