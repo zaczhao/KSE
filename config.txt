@@ -2,13 +2,13 @@
 username/password@ your oracle
 
 //This is Common: oracle database name
-ADULT
+tablename (such as STUDENTS)
 
 //This is Common: id column name, such as columnID, customID...
-ID
+the id column name (such as ID)
 
 //This is Common: Hbase config
-localhost:90000
+your Hbase setting (such as localhost:90000)
 
 //This is Common: Hbase auto update period, per second
-5
+just a number (such as 5)
