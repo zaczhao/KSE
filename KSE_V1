@@ -1,0 +1,1159 @@
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.nio.channels.FileLock;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
+
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.JTextField;
+import javax.swing.event.CaretEvent;
+import javax.swing.event.CaretListener;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.text.TableView.TableCell;
+
+import oracle.jdbc.OracleConnection;
+import oracle.jdbc.pool.OracleDataSource;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.ResultScanner;
+import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.util.Bytes;
+
+import jxl.Workbook;
+import jxl.write.Label;
+import jxl.write.WritableSheet;
+import jxl.write.WritableWorkbook;
+
+@SuppressWarnings("serial")
+public class KSE extends JFrame implements ActionListener {
+
+	static List<Integer> result;
+	static String string = "";
+	static String[][] original;
+	static List<Integer> col = new ArrayList<Integer>();
+	static List<String> wrong = new ArrayList<String>();
+	static String error = null;
+	static int size = 0;
+	static String input = "";
+	static String getInput;
+	static String[][] s = null;
+	static List<String> resultKey = new ArrayList<String>();
+	static List<String> noResultKey = new ArrayList<String>();
+	static List<String> coloredKey = new ArrayList<String>();
+	static List<String> FileNameKey;// write file name with valid key
+	boolean exported = false;// check if exported already
+	boolean updateStatus = false;
+	static List<String> configText = new ArrayList<String>();
+	static String OracleURL;
+	static String OracleTableName;
+	static String IDColumnName;
+	static int IDColumnNum;
+	static String HbaseConfig;
+	static String updateHbasePeriod;
+	Timer timer = null;
+	static int count=0;
+
+	private JScrollPane panel;
+	private JButton next, previous, export, first, last;
+	private JLabel label1, label2, label3, label4; // 1.page number 2.per page 3.search
+											// time
+	private JMenuBar bar;
+	private JMenu menu1;
+	private JMenuItem item1;
+	private JMenuItem item2;
+	private JMenuItem item3;
+	private JMenuItem item4;
+	private JTable table;
+	public int currentPage = 1;
+	public int totalPage = 0;
+	public int totalRowCount = 0;
+	public int pageCount;
+	public int column = 0;
+	public int restCount;
+	public String[][] resultData;
+
+	String[] array = { "23", "50", "100" };
+	JComboBox box = new JComboBox(array);
+
+	public static String[] columnNames = null;
+	public DefaultTableModel model = null;
+
+	public KSE() {
+		super("KSE Search Engine");
+		this.setSize(800, 600);
+		this.setResizable(false);
+		table = new JTable();
+		table.setAutoCreateRowSorter(true);// table available sorting when click
+											// the column name
+		box.setBounds(720, 15, 50, 20);
+		label2 = new JLabel("Per Page:");
+		label2.setBounds(650, 3, 120, 50);
+		panel = new JScrollPane();
+		// add search text field and search button
+		final JLabel label = new JLabel();
+		final JTextField textField = new JTextField(30);
+		textField.addFocusListener(new FocusListener() {
+			@Override
+			public void focusGained(FocusEvent e) {
+				textField.setText("");
+			}
+
+			@Override
+			public void focusLost(FocusEvent e) {
+				// TODO Auto-generated method stub
+				input = textField.getText();
+				if (input.equals(""))
+					textField
+							.setText("Using '||or' to search or between keywords");
+			}
+		});
+		final JButton b = new JButton("Search");
+		ActionListener searchButton = new ActionListener() { // search button
+																// listener
+			public void actionPerformed(ActionEvent ae) {
+				resultKey.clear();// initial valid key array
+				noResultKey.clear();
+				coloredKey.clear();
+				if (input.equals("")) {
+					input = textField.getText();
+				}
+				if (input.equals("Using '||or' to search or between keywords")) {
+					input = "";
+				}
+				if (input.replace(" ", "").length() == 0) { // did not input or
+															// input just blank
+					string = "   Please input some keywords to search   ";
+					textField.setText(null);
+					JOptionPane.showMessageDialog(null, string,
+							"KSE Search Engine @ Zac Zhao",
+							JOptionPane.INFORMATION_MESSAGE);
+				} else {// has some input
+					input = textField.getText();
+					long startTime = System.currentTimeMillis(); // hbase
+																	// searching
+																	// time
+					result = checkOr(input);// check if there contain or
+											// relation
+					if (result == null || result.size() == 0) {// did not find
+																// any key
+						string = "Sorry, We didn't find anything ";
+						if (noResultKey.size() != 0) {
+							string += "related to " + noResultKey.toString();
+						}
+						if (wrong.size() != 0) {// problem from which word
+							string += "\nand not exist keyword: "
+									+ wrong.toString();
+						}
+						string += ".\nPlease try some other keywords";
+						wrong.clear();
+						textField.setText(null);
+						JOptionPane.showMessageDialog(null, string,
+								"H-Base Keywords Search @ Zac Zhao",
+								JOptionPane.INFORMATION_MESSAGE);
+					} else {// find something from hbase
+						long endTime = System.currentTimeMillis();
+						Collections.sort(result);
+						long OstartTime = System.currentTimeMillis(); // oracle
+																		// searching
+																		// time
+						String[][] original = searchDataFromOracle(result);
+						long OendTime = System.currentTimeMillis();
+						if (original == null) {// no return from oracle
+							string = error;
+							JOptionPane.showMessageDialog(null, string,
+									"H-Base Keywords Search @ Zac Zhao",
+									JOptionPane.INFORMATION_MESSAGE);
+						} else {
+							string="";
+							if (wrong.size() != 0||noResultKey.size() != 0) {
+								if (wrong.size() != 0){
+								string = "Sorry, not exist keyword: "+ wrong.toString();
+									}
+								wrong.clear();
+								if (noResultKey.size() != 0) {
+									string += "\nand We didn't find anything related to " + noResultKey.toString();
+								}
+								string+= "\nResult only for "+resultKey.toString();
+								JOptionPane.showMessageDialog(null, string,
+										"KSE Search Engine @ Zac Zhao",
+										JOptionPane.INFORMATION_MESSAGE);
+							}
+						}
+						label4.setText("Result for valid keywords: " + resultKey.toString());
+						label3.setText("Searching time @H-Base: " + (endTime - startTime)
+								+ "ms. @Oracle: " + (OendTime - OstartTime)
+								+ "ms.");
+						initTable();
+						textField.setText("");
+						FileNameKey = new ArrayList<String>(resultKey);
+						exported = false;// new search
+					}
+				}
+			}
+
+		};
+		b.addActionListener(searchButton);
+		textField.addActionListener(searchButton);
+		// end add search text field and search button
+		panel.getViewport().add(table);
+		panel.setBounds(25, 46, 750, 480);
+		first = new JButton("First");
+		first.setBounds(34, 560, 90, 30);
+		previous = new JButton("Last");
+		previous.setBounds(194, 560, 90, 30);
+		next = new JButton("Next");
+		next.setBounds(354, 560, 90, 30);
+		last = new JButton("Last");
+		last.setBounds(514, 560, 90, 30);
+		export = new JButton("Export");
+		export.setBounds(664, 560, 90, 30);
+		bar = new JMenuBar();
+		bar.setBounds(0, 10, 600, 35);
+		menu1 = new JMenu("    Menu    ");
+		item1 = new JMenuItem("Configure");
+		item2 = new JMenuItem("Exit");
+		item3 = new JMenuItem("Arthor Info");
+		item4 = new JMenuItem("Auto Update OFF");
+
+		previous.addActionListener(this);
+		next.addActionListener(this);
+		export.addActionListener(this);
+		first.addActionListener(this);
+		last.addActionListener(this);
+
+		label1 = new JLabel();
+		label1.setBounds(530, 520, 280, 60);// per page
+		label3 = new JLabel();
+		label3.setBounds(25, 520, 500, 60);// search time
+		label4 = new JLabel();
+		label4.setBounds(25, 502, 500, 60);// input
+		bar.add(menu1);
+		bar.add(textField);
+		bar.add(b);
+		menu1.add(item1);
+		item1.setPreferredSize(new Dimension(150, 40));
+		menu1.add(item4);// auto update Hbase trigger
+		item4.setPreferredSize(new Dimension(150, 40));
+		menu1.add(item3);
+		item3.setPreferredSize(new Dimension(150, 40));
+		menu1.add(item2);
+		item2.setPreferredSize(new Dimension(150, 40));
+
+		this.getContentPane().setLayout(null);
+		this.getContentPane().add(bar);
+		this.getContentPane().add(box);
+		this.getContentPane().add(label2);
+		this.getContentPane().add(label3);
+		this.getContentPane().add(label4);
+		this.getContentPane().add(panel);
+		this.getContentPane().add(previous);
+		this.getContentPane().add(next);
+		this.getContentPane().add(first);
+		this.getContentPane().add(last);
+		this.getContentPane().add(export);
+		this.getContentPane().add(label1);
+
+		this.setDefaultCloseOperation(EXIT_ON_CLOSE);
+		this.setLocationRelativeTo(null);
+		this.setVisible(true);
+
+		box.addActionListener(new ActionListener() {
+
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				String Str = (String) box.getSelectedItem();
+				pageCount = Integer.parseInt(Str);
+				currentPage = 1;
+				initTable();
+			}
+		});
+
+		/* menu */
+		item3.addActionListener(new ActionListener() {
+
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				// TODO Auto-generated method stub
+				JOptionPane.showMessageDialog(null,
+						"ICT Project\nZac Zhao 2016@UniSA",
+						"H-Base Keywords Search @ Zac Zhao",
+						JOptionPane.INFORMATION_MESSAGE);
+			}
+		});
+		item1.addActionListener(new ActionListener() {
+
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				try {
+					writeDataToHbase(readDataFromOracle());
+					JOptionPane.showMessageDialog(null,
+							"KSE Configure Done.\nWe have " + count + " keywords in H-Base",
+							"KSE Search Engine @ Zac Zhao",
+							JOptionPane.INFORMATION_MESSAGE);
+				} catch (IOException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+			}
+		});
+		item2.addActionListener(new ActionListener() {
+
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				// TODO Auto-generated method stub
+				System.exit(0);
+
+			}
+		});
+		item4.addActionListener(new ActionListener() {
+
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				// TODO Auto-generated method stub
+				if (updateStatus == false) {
+					timer = new Timer();
+					class Task extends TimerTask {
+						@Override
+						public void run() {
+							updateStatus = true;
+							item4.setText("Auto Update ON");
+							String[][] triggerGot = triggerReadOracle();
+							if (!(triggerGot == null)) {
+								try {
+									updateHbase(triggerGot);
+									JOptionPane.showMessageDialog(null,
+											"Hbase Auto-Updated @ "
+													+ new Date(),
+											"KSE Search Engine @ Zac Zhao",
+											JOptionPane.INFORMATION_MESSAGE);
+								} catch (IOException e) {
+									
+									e.printStackTrace();
+								}
+							}
+						}
+					}
+					// schedule(TimerTask task, long delay, long period)
+					timer.schedule(new Task(), 1000,
+							Integer.valueOf(updateHbasePeriod) * 1000);// *1000
+																		// to
+																		// be
+																		// seconds
+				} else {
+					timer.cancel();
+					updateStatus = false;
+					item4.setText("Auto Update OFF");
+					timer = null;
+				}
+
+			}
+		});
+	}
+
+	public int getNextPage() {
+		if (this.currentPage != this.totalPage) {
+			return ++currentPage;
+		}
+		return -1;
+	}
+
+	public int getPreviousPage() {
+		if (this.currentPage != 1) {
+			return --currentPage;
+		}
+		return -1;
+	}
+
+	public int getLastPage() {
+		currentPage = totalPage;
+		return currentPage;
+	}
+
+	public int getFirstPage() {
+		currentPage = 1;
+		return currentPage;
+	}
+
+	public int getTotolPage() {
+		return this.totalPage;
+	}
+
+	public int getCurrentPage() {
+		return this.currentPage;
+	}
+
+	/**
+	 * @param data
+	 */
+	public void initResultData(String[][] data) {
+		if (data != null) {
+			resultData = data;// total result
+			column = data[0].length;// column amount
+			totalRowCount = data.length;// row size amount
+			String Str = (String) box.getSelectedItem();
+			pageCount = Integer.parseInt(Str);
+			if (pageCount > totalRowCount) {// no empty cell row when data not
+											// too much
+				pageCount = totalRowCount;
+			}
+			totalPage = totalRowCount % pageCount == 0 ? totalRowCount
+					/ pageCount : totalRowCount / pageCount + 1;// total page
+			restCount = totalRowCount % pageCount == 0 ? pageCount
+					: totalRowCount % pageCount;// last page data
+			getPageData();
+			label1.setText("Total " + totalRowCount + " records|Current "
+					+ currentPage + " of " + totalPage + " Page");
+		}
+	}
+
+	/**
+	 * seperate page
+	 * 
+	 * @return
+	 */
+	public String[][] getPageData() {
+		String[][] currentPageData;// current
+		// page data
+if (this.getCurrentPage() < this.totalPage) {// current page is not last
+							// page, then have page
+							// count data
+currentPageData = new String[pageCount][column];// current page data
+for (int i = pageCount * (this.getCurrentPage() - 1); i < pageCount
+* (this.getCurrentPage() - 1) + pageCount; i++) {
+for (int j = 0; j < column; j++) {
+// set data for each row
+currentPageData[i % pageCount][j] = resultData[i][j];
+}
+}
+} else {
+// if current page no data then back to first page when change the
+// page count number in box
+if (pageCount * (this.getCurrentPage() - 1) >= totalRowCount) {
+this.currentPage = 1;
+label1.setText("Total " + totalRowCount + " records|Current "
++ currentPage + " of " + totalPage + " Page");
+}// back to first page
+currentPageData = new String[restCount][column];// last page data
+for (int i = pageCount * (this.getCurrentPage() - 1); i < pageCount
+* (this.getCurrentPage() - 1) + restCount; i++) {
+for (int j = 0; j < column; j++) {
+currentPageData[i % pageCount][j] = resultData[i][j];
+}
+}
+}
+return currentPageData;
+	}
+
+	public void initTable() {
+
+		final String[][] data = s;
+		if (data != null) {
+			initResultData(data);
+			model = new DefaultTableModel(getPageData(), columnNames);
+		} else {
+			// no data is not null, is empty
+			String[][] nothing = {};
+			model = new DefaultTableModel(nothing, columnNames);
+			totalRowCount = 0;
+		}
+		table.setModel(model);
+		table.setRowHeight(20);
+		// try to color key
+		// try to color cell
+		class MyCellRender extends DefaultTableCellRenderer {
+			@Override
+			public Component getTableCellRendererComponent(JTable table,
+					Object value, boolean isSelected, boolean hasFocus,
+					int row, int column) {
+				Component c = super.getTableCellRendererComponent(table, value,
+						isSelected, hasFocus, row, column);
+					for (String s : coloredKey) {
+						if (table.getValueAt(row, column).toString()
+								.equalsIgnoreCase(s)
+								|| table.getValueAt(row, column).toString()
+										.toLowerCase()
+										.contains(s.toLowerCase())) {
+							c.setBackground(Color.yellow);
+							return c;
+						} else {
+							c.setBackground(null);
+						}
+					}
+				return c;
+			}
+		}
+		DefaultTableCellRenderer r = new MyCellRender();
+		r.setHorizontalAlignment(JLabel.CENTER);
+		table.setDefaultRenderer(Object.class, r);
+		table.setCellSelectionEnabled(true);
+	}
+
+	/**
+	 * niv button
+	 */
+	public void actionPerformed(ActionEvent e) {
+		// TODO Auto-generated method stub
+		// String ItemName = e.getActionCommand();
+		JButton button = (JButton) e.getSource();
+		if (button.equals(first)) {
+			int i = getFirstPage();
+			if (i == -1)
+				return;
+		}
+		if (button.equals(previous)) {
+			int i = getPreviousPage();
+			if (i == -1)
+				return;
+		}
+		if (button.equals(next)) {
+			int i = getNextPage();
+			if (i == -1)
+				return;
+		}
+		if (button.equals(last)) {
+			int i = getLastPage();
+			if (i == -1)
+				return;
+		}
+		if (button.equals(export)) {
+			if (exported == true) {
+				JOptionPane.showMessageDialog(null,
+						"This result is already exported!",
+						"KSE Search Engine @ Zac Zhao",
+						JOptionPane.INFORMATION_MESSAGE);
+			} else {
+				try {
+					if (s != null) {
+						SimpleDateFormat dateFormat = new SimpleDateFormat(
+								"yyyy_MM_dd" + "_" + "HH:mm:ss");
+						Date now = new Date();
+						String TimeNow = dateFormat.format(now);
+						File folder = new File("/home/hduser/ICTDataFile/exportedResult");
+						if (folder.exists() && folder.isDirectory()) {
+						} else {
+							folder.mkdir();
+						}
+						String FileName = FileNameKey + "_" + TimeNow + ".xls";
+						File newFile = new File("/home/hduser/ICTDataFile/exportedResult/"
+								+ FileName);
+						newFile.createNewFile();
+						FileNameKey.clear();
+						WriteExcel(newFile, result);
+						exported = true;
+					}
+				} catch (Exception e1) {
+					// TODO Auto-generated catch b
+					// exportLabel.setText("This result is already exported!");lock
+					e1.printStackTrace();
+				}
+			}
+		}
+
+		String[][] currentPageData;
+		if (this.getCurrentPage() < this.totalPage) {
+			currentPageData = new String[pageCount][column];
+			for (int i = pageCount * (this.getCurrentPage() - 1); i < pageCount
+					* (this.getCurrentPage() - 1) + pageCount; i++) {
+				for (int j = 0; j < column; j++) {
+					currentPageData[i % pageCount][j] = resultData[i][j];
+				}
+			}
+		} else {
+			if (pageCount * (this.getCurrentPage() - 1) >= totalRowCount)
+				this.currentPage--;
+			currentPageData = new String[restCount][column];
+			for (int i = pageCount * (this.getCurrentPage() - 1); i < pageCount
+					* (this.getCurrentPage() - 1) + restCount; i++) {
+				for (int j = 0; j < column; j++) {
+					currentPageData[i % pageCount][j] = resultData[i][j];
+				}
+			}
+		}
+
+		DefaultTableModel model = new DefaultTableModel(currentPageData,
+				columnNames);
+		table.setModel(model);
+		label1.setText("Total " + totalRowCount + " records|Current "
+				+ currentPage + " of " + totalPage + " Page");
+	}
+
+	public static List<Integer> checkOr(String str) {
+		if (str.toLowerCase().contains("||or")) {
+			int orIndex = str.toLowerCase().indexOf("||or");
+			String str1 = str.substring(0, orIndex);
+			List<Integer> result1 = SearchMulti(str1);
+			if (result1.size()!=0){
+				if (resultKey.size()!=0){
+					resultKey.add("'or'");
+				}
+				resultKey.add(str1);
+			}else if (!wrong.contains(str1)){
+				if (noResultKey.size()!=0){
+					noResultKey.add("'or'");
+				}
+				noResultKey.add(str1);
+			}
+			List<Integer> result2;
+			String str2 = str.substring(orIndex + 4, str.length());
+			if (str2.toLowerCase().contains("||or")) {
+				result2 = checkOr(str2);
+			} else {
+				result2 = SearchMulti(str2);
+				if (result2.size()!=0){
+					if (resultKey.size()!=0){
+						resultKey.add("'or'");
+					}
+					resultKey.add(str2);
+				}else{
+					if (noResultKey.size()!=0){
+						noResultKey.add("'or'");
+					}
+					noResultKey.add(str2);
+				}
+			}
+			result = SearchOr(result1, result2);
+		} else {
+			result = SearchMulti(str);
+			if (result.size()!=0){
+				resultKey.add(str);
+			}else{
+				if (noResultKey.size()!=0){
+					noResultKey.add("'And'");
+				}
+				noResultKey.add(str);
+			}
+		}
+		return result;
+	}
+
+	public static List<Integer> SearchMulti(String k1) {
+		List<Integer> id = null;
+		try {
+			String[] oldkeyArray = k1.split(" |-|,|\\+");
+			List<String> newkeyArray = new ArrayList<String>();
+			for (String a : oldkeyArray) {// remove black
+				if (!a.equals("")) {
+					newkeyArray.add(a);
+				}
+			}
+			List<List<Integer>> multi = SearchingHbase(newkeyArray);// search
+																	// multi
+																	// keys from
+																	// HBase.
+			int multiSize = multi.size();
+			if (multiSize == 0) {
+				return null;
+			} else if (multiSize == 1 && id == null) {// only one
+				id = multi.get(0);
+			} else if (multiSize != 0) {
+				id = multi.get(0);
+				for (int i = 1; i < multiSize; i++) {// more than 1
+					id = SearchAnd(id, multi.get(i));
+				}
+			}
+			multi.add(id);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return id;
+	}
+
+	public static List<Integer> SearchAnd(List<Integer> r1, List<Integer> r2) {// two
+																				// id
+																				// string
+		col = new ArrayList<Integer>();
+		for (Integer a : r1) {
+			if (a != null && r2.contains(a) && !col.contains(a)) {
+				col.add(a);
+			}
+		}
+		return col;
+	}
+
+	public static List<Integer> SearchOr(List<Integer> r1, List<Integer> r2) {// two
+																				// id
+																				// string
+		col = new ArrayList<Integer>();
+		if (r1 != null) {
+			for (Integer a : r1) {
+				if (a != null && !col.contains(a)) {
+					col.add(a);
+				}
+			}
+		}
+		if (r2 != null) {
+			for (Integer a : r2) {
+				if (a != null && !col.contains(a)) {
+					col.add(a);
+				}
+			}
+		}
+		return col;
+	}
+
+	public static List<List<Integer>> SearchingHbase(List<String> keyArray)
+			throws IOException {
+		Configuration config = HBaseConfiguration.create();
+		// String key = keyArray.toUpperCase();
+		config.set("hbase.master", HbaseConfig);
+		String tableName = OracleTableName;
+		// recreate table.
+		HTable table = new HTable(config, tableName);
+		List<List<Integer>> multi = new ArrayList<List<Integer>>();
+		for (String key2 : keyArray) {
+			String key = key2.toUpperCase();
+			Get g = new Get(Bytes.toBytes(key));
+			g.setMaxVersions(Integer.MAX_VALUE);
+			Result r = table.get(g);
+			List<Integer> list = new ArrayList<Integer>();
+			if (!r.isEmpty()) {
+				for (KeyValue kv : r.list()) {
+					list.add(Integer.valueOf(Bytes.toString(kv.getQualifier())));// get
+																					// column
+																					// names
+				}
+				multi.add(list);
+				coloredKey.add(key2);
+			} else {
+				if (!wrong.contains(key2)){
+					wrong.add(key2);
+				}
+				multi.add(list);
+			}
+		}
+		return multi;
+	}
+
+	public static String[][] searchDataFromOracle(List<Integer> result) {
+		if (result == null) {
+			return null;
+		}
+		try {
+			// create the Oracle DataSource and set the URL
+			OracleDataSource ods = new OracleDataSource();
+			// ods.setURL("jdbc:oracle:thin:sys as sysdba/000@localhost:1521:xe");
+			ods.setURL("jdbc:oracle:thin:" + OracleURL);
+
+			// connect to the database and turn off auto commit
+			OracleConnection ocon = (OracleConnection) ods.getConnection();
+			ocon.setAutoCommit(false);
+			Statement stmt = ocon
+					.createStatement(ResultSet.TYPE_SCROLL_SENSITIVE,
+							ResultSet.CONCUR_READ_ONLY);
+			// create the statement and execute the query
+			s = new String[result.size()][];
+			int row = 0;
+			if (wrong.size() != 0) {
+				string += "But we can not search for" + wrong.toString()
+						+ ", try some others";
+			}
+			for (int n : result) {
+				ResultSet rset = stmt.executeQuery("SELECT * FROM "
+						+ OracleTableName + " WHERE " + IDColumnName + " = "
+						+ n);
+				size = rset.getFetchSize();
+				s[row] = new String[size];
+				ResultSetMetaData data = rset.getMetaData();
+				columnNames = new String[size];
+				for (int i = 1; i <= size; i++) {
+					columnNames[i - 1] = data.getColumnName(i);
+				}
+				while (rset.next()) {
+					for (int i = 1; i <= size; i++) {
+						s[row][i - 1] = rset.getString(i);
+					}
+				}
+				row++;
+			}
+			stmt.close();
+		} catch (SQLException e) {
+			error = e.getMessage();
+			return null;
+		}
+		return s;
+	}
+
+	public void WriteExcel(File fileName, List<Integer> result2)
+			throws Exception {
+		// create a excel for search result
+		try {
+			WritableWorkbook book = null;
+			WritableSheet sheet = null;
+			int i = 0;
+			int j = 0;
+			book = Workbook.createWorkbook(fileName);
+			sheet = book.createSheet("sheet1", 0);// create sheet
+			// create the Oracle DataSource and set the URL
+			OracleDataSource ods = new OracleDataSource();
+			// ods.setURL("jdbc:oracle:thin:sys as sysdba/000@localhost:1521:xe");
+			ods.setURL("jdbc:oracle:thin:" + OracleURL);
+
+			// connect to the database and turn off auto commit
+			OracleConnection ocon = (OracleConnection) ods.getConnection();
+			ocon.setAutoCommit(false);
+			Statement stmt = ocon
+					.createStatement(ResultSet.TYPE_SCROLL_SENSITIVE,
+							ResultSet.CONCUR_READ_ONLY);
+			// create the statement and execute the query
+			boolean addHead = false;
+			for (int n : result) {
+				ResultSet rset = stmt.executeQuery("SELECT * FROM "
+						+ OracleTableName + " WHERE " + IDColumnName + "=" + n);
+				if (addHead == false) {// check and add head for excel
+					for (int m = 0; m < size; m++) {
+						sheet.addCell(new Label(m, 0, rset.getMetaData()
+								.getColumnName(m + 1)));
+					}
+					addHead = true;
+				}
+				while (rset.next()) { // add data to excel
+					for (int k = 0; k < rset.getMetaData().getColumnCount(); k++) {
+						sheet.addCell(new Label(k, j + i + 1, rset
+								.getString(k + 1)));
+					}
+					i++;
+				}
+				rset.close();
+			}
+			stmt.close();
+			book.write();
+			book.close();
+			JOptionPane.showMessageDialog(null, "The Result is exported to: "
+					+ fileName, "KSE Search Engine @ Zac Zhao",
+					JOptionPane.INFORMATION_MESSAGE);
+		} catch (SQLException e) {
+			error = e.getMessage();
+			return;
+		}
+	}
+
+	public static String[][] readDataFromOracle() {
+		String[][] s = null;
+		try {
+			// create the Oracle DataSource and set the URL
+			OracleDataSource ods = new OracleDataSource();
+			// ods.setURL("jdbc:oracle:thin:sys as sysdba/000@localhost:1521:xe");
+			ods.setURL("jdbc:oracle:thin:" + OracleURL);
+
+			// connect to the database and turn off auto commit
+			OracleConnection ocon = (OracleConnection) ods.getConnection();
+			ocon.setAutoCommit(false);
+
+			// create the statement and execute the query
+			Statement stmt = ocon
+					.createStatement(ResultSet.TYPE_SCROLL_SENSITIVE,
+							ResultSet.CONCUR_READ_ONLY);
+			ResultSet rset = stmt.executeQuery("SELECT * FROM "
+					+ OracleTableName + " WHERE " + IDColumnName + " < 1000");// ONLY
+																				// READ
+																				// 1000
+																				// ROWS
+			int size = rset.getFetchSize();
+			for (int i = 1; i <= size; i++) {
+				if (rset.getMetaData().getColumnName(i)
+						.equalsIgnoreCase(IDColumnName)) {
+					IDColumnNum = i;
+				}
+			}
+			rset.last();
+			int count = rset.getRow();
+			rset.beforeFirst();
+			s = new String[count][size];
+			// print out the results
+			int row = 0;
+			while (rset.next()) {// rset is single row
+				for (int i = 1; i <= size; i++) {
+					s[row][i - 1] = rset.getString(i).toString();
+					// System.out.println(s[row][i-1].toString());
+				}
+				row++;
+				// list.add(i-1, rset.getString(i));
+			}
+		} catch (SQLException e) {
+			System.out.println(e.getMessage());
+		}
+		return s;
+	}
+
+	@SuppressWarnings({ "deprecation", "resource", "unused" })
+	public static void writeDataToHbase(String[][] str) throws IOException {
+		Configuration config = HBaseConfiguration.create();
+		config.set("hbase.master", HbaseConfig);
+		HBaseAdmin admin = new HBaseAdmin(config);
+		String tableName = OracleTableName;
+		if (admin.tableExists(tableName)) {
+			System.out.println("table   Exists:" + tableName);
+			admin.disableTable(tableName);
+			admin.deleteTable(tableName);
+			System.out.println("table   deleted:" + tableName);
+		} else {
+		}
+		// recreate table.
+		HTableDescriptor tableDesc = new HTableDescriptor(tableName);
+		tableDesc.addFamily(new HColumnDescriptor("Family"));
+		admin.createTable(tableDesc);
+		System.out.println("create table ok .");
+		HTable table = new HTable(config, tableName);
+		int number = 0;
+		for (int i = 0; i < str.length; i++) {// str.length is full, just test
+												// 1000 rows
+			int strsize = str[i].length;
+			String id = str[i][Integer.valueOf(IDColumnNum) - 1];
+			for (int j = 0; j < strsize; j++) {// here is only one word in
+												// test data. how about
+												// there is address in
+												// another data set?
+				String subString = str[i][j];
+				String[] subArray = subString.split(" |-|,|\\+");// split the words
+															// such as address
+															// where has some
+															// words in there.
+				for (String key : subArray) {
+					Get g = new Get(Bytes.toBytes(key.toUpperCase()));
+					Result r = table.get(g);
+					if (!r.containsColumn(Bytes.toBytes("Family"),
+							Bytes.toBytes(id))) {
+						Put p = new Put(Bytes.toBytes(key.toUpperCase()));
+						p.add(Bytes.toBytes("Family"), Bytes.toBytes(id),
+								Bytes.toBytes(""));
+						table.put(p);
+					}
+				}
+			}
+			number++;
+			if (number % 100 == 0) {
+				System.out.println("Reading the " + number + " Row......  :)");
+			}
+		}
+		Scan s = new Scan();
+		ResultScanner scanner = table.getScanner(s);
+		try {
+			for (Result rr = scanner.next(); rr != null; rr = scanner.next()) {// check
+																				// row
+																				// numbers
+																				// in
+																				// hbase
+				count++;
+			}
+			System.out.println("We have " + count + " keywords in H-Base");
+		} finally {
+			scanner.close();
+			admin.close();
+		}
+		// admin.disableTable(tableName);
+		// admin.deleteTable(tableName);
+	}
+
+	public static String[][] triggerReadOracle() {
+		String[][] s = null;
+		try {
+			// create the Oracle DataSource and set the URL
+			OracleDataSource ods = new OracleDataSource();
+			// ods.setURL("jdbc:oracle:thin:sys as sysdba/000@localhost:1521:xe");
+			ods.setURL("jdbc:oracle:thin:" + OracleURL);
+
+			// connect to the database and turn off auto commit
+			OracleConnection ocon = (OracleConnection) ods.getConnection();
+			ocon.setAutoCommit(false);
+
+			// create the statement and execute the query
+			Statement stmt = ocon
+					.createStatement(ResultSet.TYPE_SCROLL_SENSITIVE,
+							ResultSet.CONCUR_READ_ONLY);
+			ResultSet rset = stmt.executeQuery("SELECT * FROM "
+					+ OracleTableName + "_TRIGGER");
+			rset.last();
+			int count = rset.getRow();
+			int size = rset.getMetaData().getColumnCount();
+			for (int i = 1; i <= size; i++) {
+				if (rset.getMetaData().getColumnName(i)
+						.equalsIgnoreCase(IDColumnName)) {
+					IDColumnNum = i;
+				}
+			}
+			rset.beforeFirst();
+			if (count != 0) {
+				s = new String[count][size];
+				int row = 0;
+				while (rset.next()) {// rset is single row
+					for (int i = 1; i <= size; i++) {
+						s[row][i - 1] = rset.getString(i).toString();
+						// System.out.println(s[row][i-1].toString());
+					}
+					row++;
+					// list.add(i-1, rset.getString(i));
+				}
+				stmt.executeUpdate("TRUNCATE TABLE " + OracleTableName
+						+ "_TRIGGER");
+			}
+		} catch (SQLException e) {
+			System.out.println(e.getMessage());
+		}
+		return s;
+	}
+
+	@SuppressWarnings("deprecation")
+	public static void updateHbase(String[][] str) throws IOException {
+		Configuration config = HBaseConfiguration.create();
+		config.set("hbase.master", HbaseConfig);
+		HBaseAdmin admin = new HBaseAdmin(config);
+		String tableName = OracleTableName;
+		new HTableDescriptor(tableName);
+		HTable table = new HTable(config, tableName);
+		int number = 0;
+		for (int i = 0; i < str.length; i++) {// str.length
+			int strsize = str[i].length;
+			String id = str[i][Integer.valueOf(IDColumnNum) - 1];// get special
+																	// ID column
+																	// number
+			for (int j = 0; j < strsize - 1; j++) {// here is only one word in
+													// test data. how about
+													// there is address in
+													// another data set?
+				String subString = str[i][j];// GET CELL
+				String[] subArray = subString.split(" |-|,|\\+");// split the
+																	// words
+																	// such as
+																	// address
+																	// where has
+																	// some
+																	// words in
+																	// there.
+				for (String key : subArray) {
+					// System.out.println(key);
+					Get g = new Get(Bytes.toBytes(key.toUpperCase()));
+					Result r = table.get(g);
+					if (str[i][strsize - 1].equalsIgnoreCase("add")) {// update
+																		// for
+																		// add
+																		// row
+																		// in
+																		// hbase
+						if (!r.containsColumn(Bytes.toBytes("Family"),
+								Bytes.toBytes(id))) {
+							// System.out.println(key);
+							Put p = new Put(Bytes.toBytes(key.toUpperCase()));
+							p.add(Bytes.toBytes("Family"), Bytes.toBytes(id),
+									Bytes.toBytes(""));
+							table.put(p);
+						} 
+					} else if (str[i][strsize - 1].equalsIgnoreCase("del")) {
+						if (r.containsColumn(Bytes.toBytes("Family"),
+								Bytes.toBytes(id))) {
+							// System.out.println(key);
+							Delete d = new Delete(Bytes.toBytes(key
+									.toUpperCase()));
+							d.deleteColumn(Bytes.toBytes("Family"),
+									Bytes.toBytes(id));
+							table.delete(d);
+						} 
+					}
+				}
+			}
+
+		}
+		admin.close();
+		// admin.disableTable(tableName);
+		// admin.deleteTable(tableName);
+
+	}
+
+	public static void readConfig() {
+		// TODO Auto-generated method stub
+		try (BufferedReader br = new BufferedReader(new FileReader(
+				"/home/hduser/ICTDataFile/ConfigFile/config.txt"))) {
+			StringBuilder sb = new StringBuilder();
+			String line = br.readLine();
+
+			while (line != null) {
+				if (!line.contains("//This is Common: ") && !line.equals("")) {
+					configText.add(line);
+				}
+				line = br.readLine();
+			}
+		} catch (IOException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		OracleURL = configText.get(0);
+		OracleTableName = configText.get(1);
+		IDColumnName = configText.get(2);
+		HbaseConfig = configText.get(3);
+		updateHbasePeriod = configText.get(4);
+	}
+
+	/**
+	 * @param args
+	 */
+	public static void main(String[] args) throws InterruptedException {
+		// TODO Auto-generated method stub
+		FileLock lck;
+		try {
+			lck = new FileOutputStream(
+					"/home/hduser/ICTDataFile/ConfigFile/flagFile")
+					.getChannel().tryLock();
+			if (lck == null) {
+				JOptionPane.showMessageDialog(null,
+						"A previous instance is already running....",
+						"KSE Search Engine @ Zac Zhao",
+						JOptionPane.INFORMATION_MESSAGE);
+				System.exit(1);
+			} else {
+				readConfig();
+				new KSE();// my windows
+				JOptionPane.showMessageDialog(null,
+						"Welcome to using KSE search engine!",
+						"KSE Search Engine @ Zac Zhao",
+						JOptionPane.INFORMATION_MESSAGE);
+			}
+		} catch (FileNotFoundException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+}
