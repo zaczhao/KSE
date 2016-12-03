@@ -1,9 +1,9 @@
 # KSE
 keywords search on relational database
 
-Author: Zac (Jiahui) Zhao
+Author: Jiahui (Zac) Zhao   Email: zhajy110#mymail.unisa.edu.au
 
-Email: zhajy110#mymail.unisa.edu.au
+Supervisor: Dr. Jixue (Jerry) Liu  HomePage:http://people.unisa.edu.au/jixue.liu   
 
 it is running on Linux + Hadoop + Hbase
 
